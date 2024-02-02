@@ -8,8 +8,21 @@
 
 #include <WiFiMulti.h>
 #include <NTPClient.h>
-#include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
+#include <DNSServer.h>
+#ifdef ESP32
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#endif
+#include "ESPAsyncWebServer.h"
+
+DNSServer dnsServer;
+AsyncWebServer server(80);
+
+
 #define LED_BUILTIN 2
 
 // Maksymalna liczba urządzeń, które można zeskanować
@@ -23,7 +36,9 @@ const char *JSON_RSSI = "rssi";
 // Utworzenie obiektu JSON
 DynamicJsonDocument devicesDoc(JSON_OBJECT_SIZE(MAX_DEVICES) + MAX_DEVICES * JSON_OBJECT_SIZE(13));
 
-int scanTime = 15; // Czas skanowania w sekundach
+int scanTime = 15; 
+
+
 BLEScan *pBLEScan;
 
 // Dane do połączenia z serwerem czasu rzeczywistego
@@ -34,17 +49,10 @@ const char *ntpServer = "0.pl.pool.ntp.org";
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, ntpServer, utcOffsetInSeconds);
 
-// Dane do połączenia z siecią Telegram
-#define BOTtoken "5831606623:AAGxSkxXdHeHM-gSYWBbue2BurW1EM6m5KE"
-#define CHAT_ID "-1001980783840"
-// Tworzenie obiektu klienta Telegram
-WiFiClientSecure client;
-UniversalTelegramBot bot(BOTtoken, client);
-
 // Dane do połączenia z sieciami WiFi
 WiFiMulti wifiMulti;
-const char *ssid[] = {"UPC1044392", "Jakie haslo?", "Oaza"};
-const char *password[] = {"vXe36aKrvket", "niepamietam", "twojamatka"};
+const char *ssid[] = {"Krownice", "Pustynia"};
+const char *password[] = {"1q2w3e4r5t6y7u8", "1q2w3e4r5t6y7u88"};
 const int num_wifi = sizeof(ssid) / sizeof(ssid[0]);
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
@@ -58,27 +66,17 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
     device["address"] = advertisedDevice.getAddress().toString();
     device["rssi"] = advertisedDevice.getRSSI();
     device["payloadLength"] = advertisedDevice.getPayloadLength();
-    device["payload"] = advertisedDevice.getPayload();
-    device["manufacturer"] = advertisedDevice.getManufacturerData();
+    // device["payload"] = advertisedDevice.getPayload();
+    // device["manufacturer"] = advertisedDevice.getManufacturerData();
     device["serviceUUID"] = advertisedDevice.getServiceUUID().toString();
-    device["serviceData"] = advertisedDevice.getServiceData();
-    device["txPower"] = advertisedDevice.getTXPower();
-    device["advertising"] = advertisedDevice.isAdvertisingService(BLEUUID((uint16_t)0x180F));
+    // device["serviceData"] = advertisedDevice.getServiceData();
     device["txPower"] = advertisedDevice.getTXPower();
     device["advertising"] = advertisedDevice.isAdvertisingService(BLEUUID((uint16_t)0x180F));
     device["addressType"] = advertisedDevice.getAddressType();
-
-    // strigify json
+    // serialize json
     String json;
-    String jsonPretty;
-    // serializeJson(devicesDoc, json);
-    // print json with indent
-    serializeJsonPretty(devicesDoc, jsonPretty);
-    Serial.println(jsonPretty);
-    bot.sendMessage(CHAT_ID, jsonPretty);
-
-    // send to telegram
-    // String url = "https://api.telegram.org/bot" + String(BOTtoken) + "/sendMessage?chat_id=" + String(CHAT_ID) + "&text=" + jsonPretty;
+    serializeJson(devicesDoc, json);
+    Serial.println(json);
   }
 };
 
@@ -98,7 +96,6 @@ void setup()
   }
   // connect wifi
   Serial.println("Connecting Wifi...");
-  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   while (wifiMulti.run() != WL_CONNECTED)
   {
     Serial.print(".");
@@ -122,13 +119,16 @@ void setup()
 
 void loop()
 {
-  Serial.println("Skanowanie...");
-  // set led high
+  Serial.println("Scanning...");
   digitalWrite(LED_BUILTIN, HIGH);
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-  Serial.printf("Znaleziono urządzeń: %d\n", foundDevices.getCount());
+  Serial.print("Devices found: ");
+  Serial.println(foundDevices.getCount());
+  digitalWrite(LED_BUILTIN, LOW); 
   pBLEScan->clearResults();
   // set led low
-  digitalWrite(LED_BUILTIN, LOW);
+  
   delay(1000);
+
+
 }
