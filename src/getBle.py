@@ -87,12 +87,12 @@ while True:
                 if data == "":
                     continue
                     
-                # print(random_color())
                 # print(data)
-                # print(RESET)
                 insert_data(data)
                 json = json.loads(data)
+                print(random_color())
                 print(json)
+                print(RESET)
 
             except:
                 print("Error parsing json string: " + jsonStr)
