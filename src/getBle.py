@@ -91,7 +91,7 @@ while True:
                 insert_data(data)
                 json = json.loads(data)
                 print(random_color())
-                print(json)
+                print(data)
                 print(RESET)
 
             except:
