@@ -5,11 +5,23 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-
 #include <WiFiMulti.h>
 #include <NTPClient.h>
-#include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
+#include <DNSServer.h>
+#ifdef ESP32
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#endif
+#include "ESPAsyncWebServer.h"
+#include <HTTPClient.h>
+
+DNSServer dnsServer;
+AsyncWebServer server(80);
+
 #define LED_BUILTIN 2
 
 // Maksymalna liczba urządzeń, które można zeskanować
@@ -23,7 +35,8 @@ const char *JSON_RSSI = "rssi";
 // Utworzenie obiektu JSON
 DynamicJsonDocument devicesDoc(JSON_OBJECT_SIZE(MAX_DEVICES) + MAX_DEVICES * JSON_OBJECT_SIZE(13));
 
-int scanTime = 15; // Czas skanowania w sekundach
+int scanTime = 4;
+
 BLEScan *pBLEScan;
 
 // Dane do połączenia z serwerem czasu rzeczywistego
@@ -34,51 +47,63 @@ const char *ntpServer = "0.pl.pool.ntp.org";
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, ntpServer, utcOffsetInSeconds);
 
-// Dane do połączenia z siecią Telegram
-#define BOTtoken "5831606623:AAGxSkxXdHeHM-gSYWBbue2BurW1EM6m5KE"
-#define CHAT_ID "-1001980783840"
-// Tworzenie obiektu klienta Telegram
-WiFiClientSecure client;
-UniversalTelegramBot bot(BOTtoken, client);
-
 // Dane do połączenia z sieciami WiFi
 WiFiMulti wifiMulti;
-const char *ssid[] = {"UPC1044392", "Jakie haslo?", "Oaza"};
-const char *password[] = {"vXe36aKrvket", "niepamietam", "twojamatka"};
+const char *ssid[] = {"Krownice", "Pustynia"};
+const char *password[] = {"1q2w3e4r5t6y7u8", "1q2w3e4r5t6y7u88"};
 const int num_wifi = sizeof(ssid) / sizeof(ssid[0]);
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 {
   void onResult(BLEAdvertisedDevice advertisedDevice)
   {
+    // Create a new JSON object for each device
+    DynamicJsonDocument deviceDoc(JSON_OBJECT_SIZE(13));
+    JsonObject device = deviceDoc.to<JsonObject>();
 
-    // create JSON object
-    JsonObject device = devicesDoc.createNestedObject();
     device["name"] = advertisedDevice.getName();
     device["address"] = advertisedDevice.getAddress().toString();
     device["rssi"] = advertisedDevice.getRSSI();
     device["payloadLength"] = advertisedDevice.getPayloadLength();
-    device["payload"] = advertisedDevice.getPayload();
-    device["manufacturer"] = advertisedDevice.getManufacturerData();
+    // device["payload"] = advertisedDevice.getPayload();
+    // device["manufacturer"] = advertisedDevice.getManufacturerData();
     device["serviceUUID"] = advertisedDevice.getServiceUUID().toString();
-    device["serviceData"] = advertisedDevice.getServiceData();
+    // device["serviceData"] = advertisedDevice.getServiceData();
     device["txPower"] = advertisedDevice.getTXPower();
     device["advertising"] = advertisedDevice.isAdvertisingService(BLEUUID((uint16_t)0x180F));
-    device["txPower"] = advertisedDevice.getTXPower();
-    device["advertising"] = advertisedDevice.isAdvertisingService(BLEUUID((uint16_t)0x180F));
-    device["addressType"] = advertisedDevice.getAddressType();
+    // device["addressType"] = advertisedDevice.getAddressType();
 
-    // strigify json
+    // Serialize the JSON object
     String json;
-    String jsonPretty;
-    // serializeJson(devicesDoc, json);
-    // print json with indent
-    serializeJsonPretty(devicesDoc, jsonPretty);
-    Serial.println(jsonPretty);
-    bot.sendMessage(CHAT_ID, jsonPretty);
+    serializeJson(device, json);
+    Serial.println(json);
+    Serial.println("\n");
 
-    // send to telegram
-    // String url = "https://api.telegram.org/bot" + String(BOTtoken) + "/sendMessage?chat_id=" + String(CHAT_ID) + "&text=" + jsonPretty;
+    DynamicJsonDocument doc(1024);
+    doc["device"] = device;
+
+    HTTPClient http;
+
+    http.begin("http://192.168.100.95");                // Specify the URL
+    http.addHeader("Content-Type", "application/json"); // Specify content-type header
+    String requestBody;
+    serializeJson(doc, requestBody); // Convert JSON object to String
+
+    int httpResponseCode = http.POST(requestBody); // Send the actual POST request
+
+    if (httpResponseCode > 0)
+    {
+      String response = http.getString(); // Get the response to the request
+      Serial.println(httpResponseCode);   // Print return code
+      // Serial.println(response);           // Print request answer
+    }
+    else
+    {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end(); // Free resources
   }
 };
 
@@ -98,7 +123,6 @@ void setup()
   }
   // connect wifi
   Serial.println("Connecting Wifi...");
-  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   while (wifiMulti.run() != WL_CONNECTED)
   {
     Serial.print(".");
@@ -122,13 +146,15 @@ void setup()
 
 void loop()
 {
-  Serial.println("Skanowanie...");
-  // set led high
+  Serial.println("Scanning...");
   digitalWrite(LED_BUILTIN, HIGH);
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-  Serial.printf("Znaleziono urządzeń: %d\n", foundDevices.getCount());
+
+  Serial.print("Devices found: ");
+  Serial.println(foundDevices.getCount());
+  digitalWrite(LED_BUILTIN, LOW);
   pBLEScan->clearResults();
   // set led low
-  digitalWrite(LED_BUILTIN, LOW);
+
   delay(1000);
 }
