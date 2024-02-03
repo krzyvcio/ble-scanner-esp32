@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-
 #include <WiFiMulti.h>
 #include <NTPClient.h>
 #include <WiFiClientSecure.h>
@@ -18,10 +17,10 @@
 #include <ESPAsyncTCP.h>
 #endif
 #include "ESPAsyncWebServer.h"
+#include <HTTPClient.h>
 
 DNSServer dnsServer;
 AsyncWebServer server(80);
-
 
 #define LED_BUILTIN 2
 
@@ -36,8 +35,7 @@ const char *JSON_RSSI = "rssi";
 // Utworzenie obiektu JSON
 DynamicJsonDocument devicesDoc(JSON_OBJECT_SIZE(MAX_DEVICES) + MAX_DEVICES * JSON_OBJECT_SIZE(13));
 
-int scanTime = 15; 
-
+int scanTime = 4;
 
 BLEScan *pBLEScan;
 
@@ -59,9 +57,10 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 {
   void onResult(BLEAdvertisedDevice advertisedDevice)
   {
+    // Create a new JSON object for each device
+    DynamicJsonDocument deviceDoc(JSON_OBJECT_SIZE(13));
+    JsonObject device = deviceDoc.to<JsonObject>();
 
-    // create JSON object
-    JsonObject device = devicesDoc.createNestedObject();
     device["name"] = advertisedDevice.getName();
     device["address"] = advertisedDevice.getAddress().toString();
     device["rssi"] = advertisedDevice.getRSSI();
@@ -72,11 +71,39 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
     // device["serviceData"] = advertisedDevice.getServiceData();
     device["txPower"] = advertisedDevice.getTXPower();
     device["advertising"] = advertisedDevice.isAdvertisingService(BLEUUID((uint16_t)0x180F));
-    device["addressType"] = advertisedDevice.getAddressType();
-    // serialize json
+    // device["addressType"] = advertisedDevice.getAddressType();
+
+    // Serialize the JSON object
     String json;
-    serializeJson(devicesDoc, json);
+    serializeJson(device, json);
     Serial.println(json);
+    Serial.println("\n");
+
+    DynamicJsonDocument doc(1024);
+    doc["device"] = device;
+
+    HTTPClient http;
+
+    http.begin("http://192.168.100.95");                // Specify the URL
+    http.addHeader("Content-Type", "application/json"); // Specify content-type header
+    String requestBody;
+    serializeJson(doc, requestBody); // Convert JSON object to String
+
+    int httpResponseCode = http.POST(requestBody); // Send the actual POST request
+
+    if (httpResponseCode > 0)
+    {
+      String response = http.getString(); // Get the response to the request
+      Serial.println(httpResponseCode);   // Print return code
+      // Serial.println(response);           // Print request answer
+    }
+    else
+    {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end(); // Free resources
   }
 };
 
@@ -122,13 +149,12 @@ void loop()
   Serial.println("Scanning...");
   digitalWrite(LED_BUILTIN, HIGH);
   BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
+
   Serial.print("Devices found: ");
   Serial.println(foundDevices.getCount());
-  digitalWrite(LED_BUILTIN, LOW); 
+  digitalWrite(LED_BUILTIN, LOW);
   pBLEScan->clearResults();
   // set led low
-  
+
   delay(1000);
-
-
 }
